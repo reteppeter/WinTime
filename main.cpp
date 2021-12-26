@@ -5,9 +5,13 @@
 #include <processthreadsapi.h>
 #include <realtimeapiset.h>
 
+#define brase break; case
+
 #include "./fmt.h"
 #include <cstdint>
 using uint64 = uint64_t;
+using int64 = int64_t;
+#include <charconv>
 
 template <typename T> T to(FILETIME& i);
 template<> uint64 to<uint64>(FILETIME& i){
@@ -15,20 +19,20 @@ template<> uint64 to<uint64>(FILETIME& i){
 };
 
 class Program{
-	size_t runs;
-	size_t warmup;
 	double real = 0;
 	double kernel = 0;
 	double user = 0;
 	double cycle = 0;
-	bool echo = false;
 
 	uint64 exitCode = 0;
-
 	int error = 0;
 
 	public:
-	Program(size_t warmup, size_t runs): warmup(warmup), runs(runs){};
+	size_t runs = 1;
+	size_t warmup = 0;
+	bool echo = false;
+
+	Program() = default;
 
 	inline int time(LPTSTR inputStart){
 		timeBeginPeriod(1);
@@ -39,7 +43,7 @@ class Program{
 		if(!echo){
 			startupInfo.dwFlags |= STARTF_USESTDHANDLES;
 		}
-		
+
 		PROCESS_INFORMATION processInfo{};
 
 		if(!CreateProcess(nullptr, inputStart, nullptr, nullptr, false, 0, nullptr, nullptr, &startupInfo, &processInfo)){
@@ -81,7 +85,7 @@ class Program{
 		real += to<uint64>(exitTime) - to<uint64>(creationTime);
 		kernel += to<uint64>(kernelTime);
 		user += to<uint64>(userTime);
-		
+
 		//Cycle time
 		ULONG64 cycleTime;
 		if(!QueryProcessCycleTime(process, &cycleTime)){ return exit(); }
@@ -123,17 +127,72 @@ int main(int argc, char** argv){
 	findWhitespace(inputStart);
 	skipWhitespace(inputStart);
 
-	while(*inputStart == '-'){
-		//Switch on the supported command line arguments
+	Program program;
+
+	const std::unordered_map<char, int> arguments{
+		{'e', 0},
+		{'w', 1},
+		{'r', 1}
 	};
 
-	skipWhitespace(inputStart);
+	while(*inputStart == '-'){
+		switch(*++inputStart){
+			case 'w':
+			case 'r':
+				++inputStart;
+				skipWhitespace(inputStart);
+				findWhitespace(inputStart);
+				break;
+			case 'e':
+				++inputStart;
+				break;
+		}
+		skipWhitespace(inputStart);
+	};
+
+	if(*inputStart == '\0'){
+		println("A program to time must be present.");
+		return 1;
+	}
+
+	//Parse the arguments for this program from argc/argv, as they are ASCII
+	for(int i = 1; i < argc; ++i){
+		if(argv[i][0] != '-'){
+			break;
+		}
+		//Switch on the supported command line arguments
+		switch(argv[i][1]){
+			brase 'e':{
+				if(program.echo == true){
+					println("Flag -e is present multiple times.");
+					return 1;
+				}
+				program.echo = true;
+			} brase 'w':{
+				if(program.warmup != 0){
+					println("Flag -w is present multiple times.");
+					return 1;
+				}
+				++i;
+				auto end = argv[i] + strlen(argv[i]);
+				int64 warmup{};
+				std::from_chars(argv[i], end, warmup);
+				if(warmup <= 0){
+					println("Flag -w requires a number greater than 1.");
+					return 1;
+				}
+				program.warmup = warmup;
+			}
+		}
+	}
 
 	println("Hello, World!");
 	println(L"{}", cli);
+	println(L"{}", inputStart);
 
-	Program program{0, 1};
+
 	auto res = program.time(inputStart);
 	program.printInfo();
+
 	return res;
 };
