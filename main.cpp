@@ -13,12 +13,52 @@ using uint64 = uint64_t;
 using int64 = int64_t;
 #include <charconv>
 
+#include <string>
+using tstring = std::basic_string<TCHAR>;
+
 template <typename T> T to(FILETIME& i);
 template<> uint64 to<uint64>(FILETIME& i){
 	return std::bit_cast<ULARGE_INTEGER, FILETIME>(i).QuadPart;
 };
 
 class Program{
+	struct Process{
+		PROCESS_INFORMATION processInfo{};
+
+		int create(tstring inputStart, bool echo){
+			STARTUPINFO startupInfo{};
+			startupInfo.cb = sizeof(STARTUPINFO);
+			if(!echo){
+				startupInfo.dwFlags |= STARTF_USESTDHANDLES;
+			}
+
+			if(!CreateProcess(nullptr, inputStart.data(), nullptr, nullptr, false, 0, nullptr, nullptr, &startupInfo, &processInfo)){
+				println("Error: Failed to create the process.");
+				return 2;
+			}
+
+			return 0;
+		};
+
+		int wait(){
+			if(WaitForSingleObject(processInfo.hProcess, INFINITE) != WAIT_OBJECT_0){
+				println("Error: Failed to wait for the process.");
+				return 3;
+			}
+
+			return 0;
+		};
+
+		bool createAndWait(tstring inputStart, bool echo){
+			return create(inputStart, echo) || wait();
+		};
+
+		void close(){
+			CloseHandle(processInfo.hThread);
+			CloseHandle(processInfo.hProcess);
+		};
+	};
+
 	double real = 0;
 	double kernel = 0;
 	double user = 0;
@@ -28,42 +68,29 @@ class Program{
 	int error = 0;
 
 	public:
-	size_t runs = 1;
+	size_t runs = 0;
 	size_t warmup = 0;
-	bool echo = false;
+	bool echo = true;
 
 	Program() = default;
 
 	inline int time(LPTSTR inputStart){
 		timeBeginPeriod(1);
 
-		STARTUPINFO startupInfo{};
-		startupInfo.cb = sizeof(STARTUPINFO);
-
-		if(!echo){
-			startupInfo.dwFlags |= STARTF_USESTDHANDLES;
+		for(int i = 0; i < warmup; ++i){
+			Process p{};
+			if(p.createAndWait(inputStart, false)){ return 1; }
+			p.close();
 		}
 
-		PROCESS_INFORMATION processInfo{};
-
-		if(!CreateProcess(nullptr, inputStart, nullptr, nullptr, false, 0, nullptr, nullptr, &startupInfo, &processInfo)){
-			println("Error: Failed to create the process.");
-			error = 2;
-			return 0;
+		auto lecho = echo;
+		for(int i = 0; i < runs; ++i){
+			Process p{};
+			if(p.createAndWait(inputStart, lecho)){ return 1; }
+			collect(p.processInfo.hProcess);
+			p.close();
+			lecho = false;
 		}
-
-		//Wait for the process to exit.
-		if(WaitForSingleObject(processInfo.hProcess, INFINITE) != WAIT_OBJECT_0){
-			println("Error: Failed to wait for the process.");
-			error = 3;
-			return 0;
-		}
-
-		collect(processInfo.hProcess);
-
-		//Cleanup
-		CloseHandle(processInfo.hThread);
-		CloseHandle(processInfo.hProcess);
 
 		timeEndPeriod(1);
 		return 0;
@@ -96,7 +123,7 @@ class Program{
 	inline void printInfo(){
 		double timeFactor = 1.0e-7 / runs;
 		println("Real time:   {:.6f}s", timeFactor * real);
-		//println("Cycle time:  {:.6f}s", cycleTime / runs);
+		//println("Cycle time:  {:.6f}s", timeFactor * cycle);
 		println("Kernel time: {:.6f}s ({:.1f}%)", timeFactor * kernel, 100.0 * kernel / real);
 		println("User time:   {:.6f}s ({:.1f}%)", timeFactor * user, 100.0 * user / real);
 	};
@@ -182,6 +209,20 @@ int main(int argc, char** argv){
 					return 1;
 				}
 				program.warmup = warmup;
+			} brase 'r':{
+				if(program.runs != 0){
+					println("Flag -r is present multiple times.");
+					return 1;
+				}
+				++i;
+				auto end = argv[i] + strlen(argv[i]);
+				int64 runs{};
+				std::from_chars(argv[i], end, runs);
+				if(runs <= 0){
+					println("Flag -r requires a number greater than 1.");
+					return 1;
+				}
+				program.runs = runs;
 			}
 		}
 	}
@@ -190,6 +231,7 @@ int main(int argc, char** argv){
 	println(L"{}", cli);
 	println(L"{}", inputStart);
 
+	tstring path = inputStart;
 
 	auto res = program.time(inputStart);
 	program.printInfo();
