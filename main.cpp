@@ -276,10 +276,6 @@ int main(int argc, char** argv){
 		}
 	}
 
-	println("Hello, World!");
-	println(L"{}", cli);
-	println(L"{}", inputStart);
-
 	tstring path = inputStart;
 
 	auto res = program.time(inputStart);
