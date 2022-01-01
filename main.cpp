@@ -4,6 +4,8 @@
 #include <timeapi.h>
 #include <processthreadsapi.h>
 #include <realtimeapiset.h>
+#define PSAPI_VERSION 2
+#include <Psapi.h>
 
 #define brase break; case
 
@@ -64,6 +66,12 @@ class Program{
 	double user = 0;
 	double cycle = 0;
 
+	double pageFaults = 0;
+	double peakPagefileUsage = 0;
+	double peakWorkingSetSize = 0;
+	double peakPagedPoolUsage = 0;
+	double peakNonPagedPoolUsage = 0;
+
 	uint64 exitCode = 0;
 	int error = 0;
 
@@ -71,6 +79,7 @@ class Program{
 	size_t runs = 0;
 	size_t warmup = 0;
 	bool echo = true;
+	bool portable = false;
 
 	Program() = default;
 
@@ -118,14 +127,46 @@ class Program{
 		if(!QueryProcessCycleTime(process, &cycleTime)){ return exit(); }
 
 		cycle += cycleTime;
+
+		//Memory usage
+		PROCESS_MEMORY_COUNTERS_EX counter{};
+		if(!GetProcessMemoryInfo(process, reinterpret_cast<PPROCESS_MEMORY_COUNTERS>(&counter), sizeof(counter))){ return exit(); }
+
+		pageFaults += counter.PageFaultCount;
+		peakPagefileUsage += counter.PeakPagefileUsage;
+		peakPagedPoolUsage += counter.QuotaPeakPagedPoolUsage;
+		peakNonPagedPoolUsage += counter.QuotaPeakNonPagedPoolUsage;
+		peakWorkingSetSize += counter.PeakWorkingSetSize;
 	};
 
+	//Min - Avg - Max ?
 	inline void printInfo(){
 		double timeFactor = 1.0e-7 / runs;
-		println("Real time:   {:.6f}s", timeFactor * real);
+		auto realTime = timeFactor * real;
+		auto kernelTime = timeFactor * kernel;
+		auto userTime = timeFactor * user;
+		if(portable){
+			print(
+				"real {:.6f}\n"
+				"user {:.6f}\n"
+				"sys {:.6f}\n",
+				realTime,
+				userTime,
+				kernelTime
+			);
+			return;
+		}
+
+		println("Real time:   {:.6f}s", realTime);
+		println("User time:   {:.6f}s ({:.1f}%)", userTime, 100.0 * user / real);
+		println("Kernel time: {:.6f}s ({:.1f}%)", kernelTime, 100.0 * kernel / real);
 		//println("Cycle time:  {:.6f}s", timeFactor * cycle);
-		println("Kernel time: {:.6f}s ({:.1f}%)", timeFactor * kernel, 100.0 * kernel / real);
-		println("User time:   {:.6f}s ({:.1f}%)", timeFactor * user, 100.0 * user / real);
+
+		println("Page faults: {:.2f}", pageFaults / runs);
+		println("Peak pagefile usage: {:.2f} bytes", peakPagefileUsage / runs);
+		println("Peak paged pool usage: {:.2f} bytes", peakPagedPoolUsage / runs);
+		println("Peak non-paged pool usage: {:.2f} bytes", peakNonPagedPoolUsage / runs);
+		println("Peak working set size: {:.2f} bytes", peakWorkingSetSize / runs);
 	};
 
 	inline void exit(){ error = 1; };
@@ -158,19 +199,21 @@ int main(int argc, char** argv){
 
 	const std::unordered_map<char, int> arguments{
 		{'e', 0},
+		{'p', 0},
 		{'w', 1},
 		{'r', 1}
 	};
 
 	while(*inputStart == '-'){
 		switch(*++inputStart){
-			case 'w':
+			case 'w': [[fallthrough]];
 			case 'r':
 				++inputStart;
 				skipWhitespace(inputStart);
 				findWhitespace(inputStart);
 				break;
-			case 'e':
+			case 'e': [[fallthrough]];
+			case 'p':
 				++inputStart;
 				break;
 		}
@@ -195,6 +238,12 @@ int main(int argc, char** argv){
 					return 1;
 				}
 				program.echo = true;
+			} brase 'p':{
+				if(program.portable == true){
+					println("Flag -p is present multiple times.");
+					return 1;
+				}
+				program.portable = true;
 			} brase 'w':{
 				if(program.warmup != 0){
 					println("Flag -w is present multiple times.");
