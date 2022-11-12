@@ -2,10 +2,16 @@
 
 A time-like utility for Windows/PowerShell.
 
+Written in C++20, depends on [fmt](https://github.com/fmtlib/fmt).
+
 ## Use
+
 - `-r` number of runs to average (deafults to 1)
+
 - `-w` number of warmup runs (default to 0)
+
 - `-p` "portable", outputs in a format like a Unix time utility (defaults to false)
+
 - `-n` "no echo", prevents the program being timed to write to the console (defaults to false)
 
 ## Example output
@@ -27,3 +33,6 @@ real 0.006
 user 0.000
 sys 0.016
 ```
+
+## TODO
+- [ ] add min/max/standard deviation as output options
