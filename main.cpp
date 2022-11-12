@@ -8,6 +8,8 @@
 #include <Psapi.h>
 
 #define brase break; case
+#define elsewise break; default
+#define fallcase [[fallthrough]]; case
 
 #include "./fmt.h"
 #include <cstdint>
@@ -64,7 +66,7 @@ class Program{
 	double real = 0;
 	double kernel = 0;
 	double user = 0;
-	double cycle = 0;
+	uint64 cycle = 0;
 
 	double pageFaults = 0;
 	double peakPagefileUsage = 0;
@@ -76,7 +78,7 @@ class Program{
 	int error = 0;
 
 	public:
-	size_t runs = 0;
+	size_t runs = 1;
 	size_t warmup = 0;
 	bool echo = true;
 	bool portable = false;
@@ -122,34 +124,37 @@ class Program{
 		kernel += to<uint64>(kernelTime);
 		user += to<uint64>(userTime);
 
-		//Cycle time
-		ULONG64 cycleTime;
-		if(!QueryProcessCycleTime(process, &cycleTime)){ return exit(); }
+		if(!portable){
+			//Cycle time
+			ULONG64 cycleTime;
+			if(!QueryProcessCycleTime(process, &cycleTime)){ return exit(); }
 
-		cycle += cycleTime;
+			cycle += cycleTime;
 
-		//Memory usage
-		PROCESS_MEMORY_COUNTERS_EX counter{};
-		if(!GetProcessMemoryInfo(process, reinterpret_cast<PPROCESS_MEMORY_COUNTERS>(&counter), sizeof(counter))){ return exit(); }
+			//Memory usage
+			PROCESS_MEMORY_COUNTERS_EX counter{};
+			if(!GetProcessMemoryInfo(process, reinterpret_cast<PPROCESS_MEMORY_COUNTERS>(&counter), sizeof(counter))){ return exit(); }
 
-		pageFaults += counter.PageFaultCount;
-		peakPagefileUsage += counter.PeakPagefileUsage;
-		peakPagedPoolUsage += counter.QuotaPeakPagedPoolUsage;
-		peakNonPagedPoolUsage += counter.QuotaPeakNonPagedPoolUsage;
-		peakWorkingSetSize += counter.PeakWorkingSetSize;
+			pageFaults += counter.PageFaultCount;
+			peakPagefileUsage += counter.PeakPagefileUsage;
+			peakPagedPoolUsage += counter.QuotaPeakPagedPoolUsage;
+			peakNonPagedPoolUsage += counter.QuotaPeakNonPagedPoolUsage;
+			peakWorkingSetSize += counter.PeakWorkingSetSize;
+		}
 	};
 
-	//Min - Avg - Max ?
 	inline void printInfo(){
 		double timeFactor = 1.0e-7 / runs;
 		auto realTime = timeFactor * real;
 		auto kernelTime = timeFactor * kernel;
 		auto userTime = timeFactor * user;
+		auto unnacounted =  max((real - user - kernel), 0);
+		auto unnacountedTime = timeFactor * unnacounted;
 		if(portable){
 			print(
-				"real {:.6f}\n"
-				"user {:.6f}\n"
-				"sys {:.6f}\n",
+				"real {:.3f}\n"
+				"user {:.3f}\n"
+				"sys {:.3f}\n",
 				realTime,
 				userTime,
 				kernelTime
@@ -157,16 +162,19 @@ class Program{
 			return;
 		}
 
+		//Min - Avg - Max ?
 		println("Real time:   {:.6f}s", realTime);
 		println("User time:   {:.6f}s ({:.1f}%)", userTime, 100.0 * user / real);
 		println("Kernel time: {:.6f}s ({:.1f}%)", kernelTime, 100.0 * kernel / real);
-		//println("Cycle time:  {:.6f}s", timeFactor * cycle);
+		println("Unnacounted time: {:.6f}s ({:.1f}%)", unnacountedTime, 100.0 * unnacounted / real);
+		println("Cycle time:  {} cycles", cycle / runs);
 
-		println("Page faults: {:.2f}", pageFaults / runs);
-		println("Peak pagefile usage: {:.2f} bytes", peakPagefileUsage / runs);
-		println("Peak paged pool usage: {:.2f} bytes", peakPagedPoolUsage / runs);
-		println("Peak non-paged pool usage: {:.2f} bytes", peakNonPagedPoolUsage / runs);
-		println("Peak working set size: {:.2f} bytes", peakWorkingSetSize / runs);
+		int decimalCount = bool(runs - 1) * 2;
+		println("Page faults: {:.{}f}", pageFaults / runs, decimalCount);
+		println("Peak pagefile usage: {:.{}f} bytes", peakPagefileUsage / runs, decimalCount);
+		println("Peak paged pool usage: {:.{}f} bytes", peakPagedPoolUsage / runs, decimalCount);
+		println("Peak non-paged pool usage: {:.{}f} bytes", peakNonPagedPoolUsage / runs, decimalCount);
+		println("Peak working set size: {:.{}f} bytes", peakWorkingSetSize / runs, decimalCount);
 	};
 
 	inline void exit(){ error = 1; };
@@ -197,25 +205,16 @@ int main(int argc, char** argv){
 
 	Program program;
 
-	const std::unordered_map<char, int> arguments{
-		{'e', 0},
-		{'p', 0},
-		{'w', 1},
-		{'r', 1}
-	};
-
 	while(*inputStart == '-'){
 		switch(*++inputStart){
-			case 'w': [[fallthrough]];
-			case 'r':
+			brase 'w':
+			fallcase 'r':
 				++inputStart;
 				skipWhitespace(inputStart);
 				findWhitespace(inputStart);
-				break;
-			case 'e': [[fallthrough]];
-			case 'p':
+			fallcase 'n':
+			fallcase 'p':
 				++inputStart;
-				break;
 		}
 		skipWhitespace(inputStart);
 	};
@@ -225,6 +224,10 @@ int main(int argc, char** argv){
 		return 1;
 	}
 
+	//Extra flags to know if a number-based option is present multiple times
+	bool specifiedRuns{};
+	bool specifiedWarmup{};
+
 	//Parse the arguments for this program from argc/argv, as they are ASCII
 	for(int i = 1; i < argc; ++i){
 		if(argv[i][0] != '-'){
@@ -232,20 +235,20 @@ int main(int argc, char** argv){
 		}
 		//Switch on the supported command line arguments
 		switch(argv[i][1]){
-			brase 'e':{
-				if(program.echo == true){
-					println("Flag -e is present multiple times.");
+			brase 'n':{
+				if(!program.echo){
+					println("Flag -n is present multiple times.");
 					return 1;
 				}
-				program.echo = true;
+				program.echo = false;
 			} brase 'p':{
-				if(program.portable == true){
+				if(program.portable){
 					println("Flag -p is present multiple times.");
 					return 1;
 				}
 				program.portable = true;
 			} brase 'w':{
-				if(program.warmup != 0){
+				if(specifiedWarmup){
 					println("Flag -w is present multiple times.");
 					return 1;
 				}
@@ -253,13 +256,14 @@ int main(int argc, char** argv){
 				auto end = argv[i] + strlen(argv[i]);
 				int64 warmup{};
 				std::from_chars(argv[i], end, warmup);
-				if(warmup <= 0){
-					println("Flag -w requires a number greater than 1.");
+				if(warmup < 0){
+					println("Flag -w requires a number greater than 0.");
 					return 1;
 				}
 				program.warmup = warmup;
+				specifiedWarmup = true;
 			} brase 'r':{
-				if(program.runs != 0){
+				if(specifiedRuns){
 					println("Flag -r is present multiple times.");
 					return 1;
 				}
@@ -272,6 +276,10 @@ int main(int argc, char** argv){
 					return 1;
 				}
 				program.runs = runs;
+				specifiedRuns = true;
+			} elsewise: {
+				println("Unsupported flag \"{}\"", argv[i][1]);
+				return 1;
 			}
 		}
 	}
