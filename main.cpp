@@ -8,8 +8,8 @@
 #include <Psapi.h>
 
 #define brase break; case
-#define elsewise break; default
 #define fallcase [[fallthrough]]; case
+#define elsewise break; default
 
 #include "./fmt.h"
 #include <cstdint>
@@ -148,8 +148,9 @@ class Program{
 		auto realTime = timeFactor * real;
 		auto kernelTime = timeFactor * kernel;
 		auto userTime = timeFactor * user;
-		auto unnacounted =  max((real - user - kernel), 0);
-		auto unnacountedTime = timeFactor * unnacounted;
+		//Due to complete time blocks only being assigned to user/kernel, some time blocks end up belonging to neither. This could also just be averaged over the kernel/user.
+		auto unaccounted =  max((real - user - kernel), 0);
+		auto unaccountedTime = timeFactor * unaccounted;
 		if(portable){
 			print(
 				"real {:.3f}\n"
@@ -166,7 +167,7 @@ class Program{
 		println("Real time:   {:.6f}s", realTime);
 		println("User time:   {:.6f}s ({:.1f}%)", userTime, 100.0 * user / real);
 		println("Kernel time: {:.6f}s ({:.1f}%)", kernelTime, 100.0 * kernel / real);
-		println("Unnacounted time: {:.6f}s ({:.1f}%)", unnacountedTime, 100.0 * unnacounted / real);
+		println("Unaccounted time: {:.6f}s ({:.1f}%)", unaccountedTime, 100.0 * unaccounted / real);
 		println("Cycle time:  {} cycles", cycle / runs);
 
 		int decimalCount = bool(runs - 1) * 2;
