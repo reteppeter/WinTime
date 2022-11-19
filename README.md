@@ -2,7 +2,7 @@
 
 A time-like utility for Windows/PowerShell.
 
-Written in C++20, depends on [fmt](https://github.com/fmtlib/fmt).
+Written in C++20, depends on [fmt](https://github.com/fmtlib/fmt) through [vcpkg](https://github.com/microsoft/vcpkg).
 
 ## Use
 
