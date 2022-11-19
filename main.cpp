@@ -146,8 +146,11 @@ class Program{
 	inline void printInfo(){
 		double timeFactor = 1.0e-7 / runs;
 		auto realTime = timeFactor * real;
+
+		//These seem to have a different resolution to the real clock, so in some cases can be larger than the real time.
 		auto kernelTime = timeFactor * kernel;
 		auto userTime = timeFactor * user;
+		
 		//Due to complete time blocks only being assigned to user/kernel, some time blocks end up belonging to neither. This could also just be averaged over the kernel/user.
 		auto unaccounted =  max((real - user - kernel), 0);
 		auto unaccountedTime = timeFactor * unaccounted;
